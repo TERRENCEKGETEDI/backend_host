@@ -90,7 +90,21 @@ global.sendRoleNotification = (role, event, data) => {
 app.get('/', (req, res) => {
   res.send('Sewage Management API');
 });
+//======
 
+// Test database connection with Sequelize
+app.get('/test-db', async (req, res) => {
+  try {
+    const users = await User.findAll({ limit: 1 }); // fetch one user
+    res.json({ success: true, data: users });
+  } catch (err) {
+    console.error('Test DB error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+//====
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   
