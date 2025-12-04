@@ -1,5 +1,6 @@
 const express = require('express');
 const { JobCard, WorkerProgress, User, TeamMember, ActivityLog, Team, Incident } = require('../models');
+const { Op } = require('sequelize');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
 const router = express.Router();
@@ -10,12 +11,15 @@ router.use(authenticateToken, authorizeRoles('team_leader'));
 // Get assigned jobs
 router.get('/jobs', async (req, res) => {
   try {
+    console.log('TeamLeader Jobs: Fetching jobs for user:', req.user.id);
     const jobs = await JobCard.findAll({
       where: { team_leader_id: req.user.id },
       include: [{ model: Incident }, { model: WorkerProgress, include: [User] }],
     });
+    console.log('TeamLeader Jobs: Found', jobs.length, 'jobs');
     res.json(jobs);
   } catch (err) {
+    console.error('Error fetching jobs:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -99,27 +103,37 @@ router.post('/message', async (req, res) => {
 // Get team availability status
 router.get('/team/status', async (req, res) => {
   try {
+    console.log('TeamLeader Status: Starting team status fetch for user:', req.user.id);
+
     // Find team managed by this team leader
     const teamMember = await TeamMember.findOne({
       where: { user_id: req.user.id },
       include: [{ model: Team }]
     });
-    
+
+    console.log('TeamLeader Status: TeamMember found:', !!teamMember);
+    console.log('TeamLeader Status: Team found:', !!teamMember?.Team);
+
     if (!teamMember || !teamMember.Team) {
+      console.log('TeamLeader Status: No team found for user:', req.user.id);
       return res.status(404).json({ error: 'Team not found' });
     }
 
     const team = teamMember.Team;
-    
+    console.log('TeamLeader Status: Team ID:', team.id, 'Name:', team.name);
+
     // Get current job count for this team
+    console.log('TeamLeader Status: Attempting job count query with team_id:', team.id);
     const jobCount = await JobCard.count({
-      where: { 
+      where: {
         team_id: team.id,
-        status: { $ne: 'completed' }
+        status: { [Op.ne]: 'completed' }
       }
     });
 
-    res.json({
+    console.log('TeamLeader Status: Job count result:', jobCount);
+
+    const response = {
       teamId: team.id,
       teamName: team.name,
       isAvailable: team.is_available,
@@ -129,10 +143,18 @@ router.get('/team/status', async (req, res) => {
       utilizationRate: team.max_capacity > 0 ? (jobCount / team.max_capacity) : 0,
       lastActivity: team.last_activity,
       availableFrom: team.available_from
-    });
+    };
+
+    console.log('TeamLeader Status: Sending response:', response);
+    res.json(response);
   } catch (err) {
     console.error('Error fetching team status:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error details:', {
+      message: err.message,
+      stack: err.stack,
+      name: err.name
+    });
+    res.status(500).json({ error: 'Server error', details: err.message });
   }
 });
 
