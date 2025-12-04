@@ -141,7 +141,3 @@ test_*.js
 
 # Other development artifacts
 token.txt
-
-INTELLIGENT_ASSIGNMENT_TEST_REPORT.json
-package-lock.json
-package.json
