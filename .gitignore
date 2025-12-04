@@ -140,4 +140,3 @@ test_*.js
 *_payload.json
 
 # Other development artifacts
-token.txt
