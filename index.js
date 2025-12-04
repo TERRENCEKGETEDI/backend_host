@@ -19,9 +19,17 @@ const io = socketIo(server, {
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+
+app.use(cors({
+  origin: 'https://dpg-d4od3ni4d50c738pv8jg-a.oregon-postgres.render.com', // your frontend URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+
+
 
 // Test DB connection and sync models
 sequelize.authenticate()
