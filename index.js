@@ -9,44 +9,50 @@ const { sequelize, User } = require('./models');
 
 const app = express();
 const server = http.createServer(app);
+
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: "https://frontend-host-8p8p.onrender.com", // FIXED
     methods: ["GET", "POST"]
   }
 });
 
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-
+// ===================
+// Middleware (FIXED)
+// ===================
 app.use(cors({
-  origin: 'https://dpg-d4od3ni4d50c738pv8jg-a.oregon-postgres.render.com', // your frontend URL
+  origin: 'https://frontend-host-8p8p.onrender.com', // FIXED
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-
-
-
-// Test DB connection and sync models
+// ===================
+// Database Connection
+// ===================
 sequelize.authenticate()
   .then(() => {
     console.log('Database connected');
-    return sequelize.sync(); // Sync models with DB
+    return sequelize.sync();
   })
   .then(() => console.log('Models synced'))
   .catch(err => console.error('Database error:', err));
 
+// ===================
 // Routes
+// ===================
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const managerRoutes = require('./routes/manager');
 const publicRoutes = require('./routes/public');
 const teamleaderRoutes = require('./routes/teamleader');
 const workerRoutes = require('./routes/worker');
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/manager', managerRoutes);
@@ -54,13 +60,17 @@ app.use('/api/public', publicRoutes);
 app.use('/api/teamleader', teamleaderRoutes);
 app.use('/api/worker', workerRoutes);
 
-// Socket.io connection handling
+// ===================
+// SOCKET.IO Auth
+// ===================
 io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
+
   if (token) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findByPk(decoded.id);
+
       if (user) {
         socket.user = user;
         return next();
@@ -69,16 +79,14 @@ io.use(async (socket, next) => {
       console.error('Socket authentication error:', err);
     }
   }
+
   return next(new Error('Authentication error'));
 });
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.user.name);
 
-  // Join user-specific room
   socket.join(`user_${socket.user.id}`);
-
-  // Join role-specific room
   socket.join(`role_${socket.user.role}`);
 
   socket.on('disconnect', () => {
@@ -86,7 +94,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Global notification function
+// Global Notifications
 global.sendNotification = (userId, event, data) => {
   io.to(`user_${userId}`).emit(event, data);
 };
@@ -95,15 +103,16 @@ global.sendRoleNotification = (role, event, data) => {
   io.to(`role_${role}`).emit(event, data);
 };
 
+// ===================
+// Test Routes
+// ===================
 app.get('/', (req, res) => {
   res.send('Sewage Management API');
 });
-//======
 
-// Test database connection with Sequelize
 app.get('/test-db', async (req, res) => {
   try {
-    const users = await User.findAll({ limit: 1 }); // fetch one user
+    const users = await User.findAll({ limit: 1 });
     res.json({ success: true, data: users });
   } catch (err) {
     console.error('Test DB error:', err);
@@ -111,22 +120,22 @@ app.get('/test-db', async (req, res) => {
   }
 });
 
-
-//====
+// ===================
+// Start Server
+// ===================
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  
-  // Initialize automated scheduling service
+
   try {
     const AutomatedSchedulingService = require('./services/AutomatedSchedulingService');
-    
-    // Start automated scheduling if enabled
+
     if (process.env.AUTOMATION_ENABLED === 'true') {
       AutomatedSchedulingService.startScheduling();
-      console.log('Automated scheduling service initialized and started');
+      console.log('Automated scheduling service started');
     } else {
-      console.log('Automated scheduling service available but disabled (set AUTOMATION_ENABLED=true to enable)');
+      console.log('Automated scheduling service disabled');
     }
+
   } catch (error) {
     console.error('Failed to initialize automated scheduling service:', error);
   }
