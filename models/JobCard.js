@@ -44,7 +44,8 @@ const JobCard = sequelize.define('JobCard', {
   },
 }, {
   tableName: 'job_cards',
-  timestamps: false,
+  timestamps: true,     // ✅ enable created_at & updated_at
+  underscored: true,    // optional: maps createdAt -> created_at
 });
 
 module.exports = JobCard;
