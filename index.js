@@ -14,6 +14,7 @@ const server = http.createServer(app);
 // CORS Config
 // =======================
 const allowedOrigins = [
+  'https://frontend-host-8p8p.onrender.com',
   'https://water-guard-app.web.app', // your hosted frontend
   'http://localhost:3000'            // optional, for local dev
 ];
