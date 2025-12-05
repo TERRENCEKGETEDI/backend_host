@@ -12,7 +12,7 @@ const server = http.createServer(app);
 
 const io = socketIo(server, {
   cors: {
-    origin: "https://frontend-host-8p8p.onrender.com", // FIXED
+    origin: "https://water-guard-app.web.app", // hosted frontend
     methods: ["GET", "POST"]
   }
 });
@@ -20,10 +20,10 @@ const io = socketIo(server, {
 const PORT = process.env.PORT || 5000;
 
 // ===================
-// Middleware (FIXED)
+// Middleware
 // ===================
 app.use(cors({
-  origin: 'https://frontend-host-8p8p.onrender.com', // FIXED
+  origin: 'https://water-guard-app.web.app', // hosted frontend
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
