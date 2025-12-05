@@ -10,133 +10,109 @@ const { sequelize, User } = require('./models');
 const app = express();
 const server = http.createServer(app);
 
-const io = socketIo(server, {
-  cors: {
-    origin: "https://water-guard-app.web.app", // hosted frontend
-    methods: ["GET", "POST"]
-  }
-});
+// =======================
+// CORS Config
+// =======================
+const allowedOrigins = [
+  'https://water-guard-app.web.app', // your hosted frontend
+  'http://localhost:3000'            // optional, for local dev
+];
 
-const PORT = process.env.PORT || 5000;
-
-// ===================
-// Middleware
-// ===================
 app.use(cors({
-  origin: 'https://water-guard-app.web.app', // hosted frontend
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: function(origin, callback){
+    // allow requests with no origin (like mobile apps or Postman)
+    if(!origin) return callback(null, true);
+    if(allowedOrigins.indexOf(origin) === -1){
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET','POST','PUT','DELETE'],
+  allowedHeaders: ['Content-Type','Authorization'],
   credentials: true
 }));
 
+// =======================
+// Body Parser
+// =======================
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// ===================
-// Database Connection
-// ===================
+// =======================
+// Database
+// =======================
 sequelize.authenticate()
-  .then(() => {
-    console.log('Database connected');
-    return sequelize.sync();
-  })
+  .then(() => console.log('Database connected'))
+  .then(() => sequelize.sync())
   .then(() => console.log('Models synced'))
   .catch(err => console.error('Database error:', err));
 
-// ===================
+// =======================
 // Routes
-// ===================
-const authRoutes = require('./routes/auth');
-const adminRoutes = require('./routes/admin');
-const managerRoutes = require('./routes/manager');
-const publicRoutes = require('./routes/public');
-const teamleaderRoutes = require('./routes/teamleader');
-const workerRoutes = require('./routes/worker');
+// =======================
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/admin', require('./routes/admin'));
+app.use('/api/manager', require('./routes/manager'));
+app.use('/api/public', require('./routes/public'));
+app.use('/api/teamleader', require('./routes/teamleader'));
+app.use('/api/worker', require('./routes/worker'));
 
-app.use('/api/auth', authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/manager', managerRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/teamleader', teamleaderRoutes);
-app.use('/api/worker', workerRoutes);
+// =======================
+// Socket.IO
+// =======================
+const io = socketIo(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET','POST'],
+    credentials: true
+  }
+});
 
-// ===================
-// SOCKET.IO Auth
-// ===================
 io.use(async (socket, next) => {
   const token = socket.handshake.auth.token;
-
-  if (token) {
+  if(token){
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findByPk(decoded.id);
-
-      if (user) {
+      if(user){
         socket.user = user;
         return next();
       }
-    } catch (err) {
-      console.error('Socket authentication error:', err);
+    } catch(err){
+      console.error('Socket auth error:', err);
     }
   }
-
-  return next(new Error('Authentication error'));
+  next(new Error('Authentication error'));
 });
 
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.user.name);
-
-  socket.join(`user_${socket.user.id}`);
-  socket.join(`role_${socket.user.role}`);
+  console.log('User connected:', socket.user?.name);
+  if(socket.user){
+    socket.join(`user_${socket.user.id}`);
+    socket.join(`role_${socket.user.role}`);
+  }
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.user.name);
+    console.log('User disconnected:', socket.user?.name);
   });
 });
 
+// =======================
 // Global Notifications
-global.sendNotification = (userId, event, data) => {
-  io.to(`user_${userId}`).emit(event, data);
-};
+// =======================
+global.sendNotification = (userId, event, data) => io.to(`user_${userId}`).emit(event, data);
+global.sendRoleNotification = (role, event, data) => io.to(`role_${role}`).emit(event, data);
 
-global.sendRoleNotification = (role, event, data) => {
-  io.to(`role_${role}`).emit(event, data);
-};
+// =======================
+// Test route
+// =======================
+app.get('/', (req,res) => res.send('Sewage Management API'));
 
-// ===================
-// Test Routes
-// ===================
-app.get('/', (req, res) => {
-  res.send('Sewage Management API');
-});
-
-app.get('/test-db', async (req, res) => {
-  try {
-    const users = await User.findAll({ limit: 1 });
-    res.json({ success: true, data: users });
-  } catch (err) {
-    console.error('Test DB error:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ===================
-// Start Server
-// ===================
+// =======================
+// Start server
+// =======================
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-
-  try {
-    const AutomatedSchedulingService = require('./services/AutomatedSchedulingService');
-
-    if (process.env.AUTOMATION_ENABLED === 'true') {
-      AutomatedSchedulingService.startScheduling();
-      console.log('Automated scheduling service started');
-    } else {
-      console.log('Automated scheduling service disabled');
-    }
-
-  } catch (error) {
-    console.error('Failed to initialize automated scheduling service:', error);
-  }
 });
