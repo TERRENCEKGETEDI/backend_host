@@ -43,9 +43,11 @@ router.post('/report', upload.array('images', 5), async (req, res) => {
 
     // Send notification to managers
     global.sendRoleNotification('manager', 'new-incident', {
+      type: 'alert',
+      title: 'New Incident Reported',
       message: `New incident reported: ${title}`,
-      incidentId: incident.id,
-      trackingId: trackingId
+      related_type: 'incident',
+      related_id: incident.id
     });
 
     res.status(201).json({

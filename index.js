@@ -29,7 +29,7 @@ app.use(cors({
     }
     return callback(null, true);
   },
-  methods: ['GET','POST','PUT','DELETE'],
+  methods: ['GET','POST','PUT','DELETE','PATCH'],
   allowedHeaders: ['Content-Type','Authorization'],
   credentials: true
 }));
@@ -133,10 +133,13 @@ global.sendNotification = async (userId, event, data) => {
 
 global.sendRoleNotification = async (role, event, data) => {
   try {
+    console.log(`Sending role notification to ${role}:`, data.title);
     // For role notifications, we need to get all users with that role and save individual notifications
     if (data.title && data.message) {
       const users = await User.findAll({ where: { role: role } });
+      console.log(`Found ${users.length} users with role ${role}`);
       for (const user of users) {
+        console.log(`Creating notification for user ${user.name} (${user.id})`);
         await Notification.create({
           user_id: user.id,
           role: role,
@@ -151,6 +154,7 @@ global.sendRoleNotification = async (role, event, data) => {
 
     // Send via socket to role room
     io.to(`role_${role}`).emit(event, data);
+    console.log(`Role notification sent successfully to ${role}`);
   } catch (error) {
     console.error('Error sending role notification:', error);
   }

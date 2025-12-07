@@ -87,7 +87,9 @@ router.put('/progress/:progressId', async (req, res) => {
 // Request help (add another team)
 router.post('/jobs/:jobId/help', async (req, res) => {
   try {
-    const job = await JobCard.findByPk(req.params.jobId);
+    const job = await JobCard.findByPk(req.params.jobId, {
+      include: [Incident]
+    });
     if (!job || job.team_leader_id !== req.user.id) return res.status(404).json({ error: 'Job not found' });
 
     // TODO: logic to assign another team, for now just log
@@ -96,6 +98,15 @@ router.post('/jobs/:jobId/help', async (req, res) => {
       action: `Requested help for job ${job.id}`,
       table_name: 'job_cards',
       reference_id: job.id,
+    });
+
+    // Send notification to managers about help request (Manager: team leader help requests)
+    global.sendRoleNotification('manager', 'help-request', {
+      type: 'warning',
+      title: 'Team Leader Help Request',
+      message: `Team leader ${req.user.name} requested help for incident: ${job.Incident?.title || 'Unknown'}`,
+      related_type: 'job_card',
+      related_id: job.id
     });
 
     res.json({ message: 'Help requested' });

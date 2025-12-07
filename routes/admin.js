@@ -500,5 +500,7 @@ router.post('/message-managers', async (req, res) => {
   });
   res.json({ message: 'Message sent' });
 });
+module.exports = router;
+module.exports = router;
 
 module.exports = router;
