@@ -163,6 +163,48 @@ router.post('/incidents/:incidentId/assign/:teamId', async (req, res) => {
       })
     });
 
+    // Send notifications to team members and team leader
+    const teamMembers = await TeamMember.findAll({
+      where: { team_id: teamId },
+      include: [User]
+    });
+
+    // Find team leader (first team member, or we could have a separate logic)
+    const teamLeader = teamMembers.find(member => member.User.role === 'team_leader') || teamMembers[0];
+
+    // Notify team leader (Team Leader: job assignments)
+    if (teamLeader) {
+      global.sendNotification(teamLeader.user_id, 'new-assignment', {
+        type: 'task',
+        title: 'New Team Assignment',
+        message: `New incident assigned to your team: ${incident.title}`,
+        related_type: 'incident',
+        related_id: incident.id
+      });
+    }
+
+    // Notify all team members (Worker: job updates)
+    teamMembers.forEach(member => {
+      if (member.User.role === 'worker') {
+        global.sendNotification(member.user_id, 'new-assignment', {
+          type: 'task',
+          title: 'New Job Assignment',
+          message: `New incident assigned to your team: ${incident.title}`,
+          related_type: 'incident',
+          related_id: incident.id
+        });
+      }
+    });
+
+    // Notify managers about the assignment (Manager: status updates)
+    global.sendRoleNotification('manager', 'assignment-update', {
+      type: 'info',
+      title: 'Assignment Completed',
+      message: `Team ${team.name} manually assigned to incident "${incident.title}"`,
+      related_type: 'incident',
+      related_id: incident.id
+    });
+
     res.json({
       success: true,
       message: `Incident manually assigned to team ${team.name}`,
@@ -685,11 +727,53 @@ router.post('/automation/assign/:incidentId',
       };
       
       const result = await automationService.assignIncidentWithRules(
-        req.params.incidentId, 
-        req.user.id, 
+        req.params.incidentId,
+        req.user.id,
         options
       );
-      
+
+      // Send notifications for automated assignment
+      const teamMembers = await TeamMember.findAll({
+        where: { team_id: result.selectedTeam.id },
+        include: [User]
+      });
+
+      // Find team leader
+      const teamLeader = teamMembers.find(member => member.User.role === 'team_leader') || teamMembers[0];
+
+      // Notify team leader (Team Leader: job assignments)
+      if (teamLeader) {
+        global.sendNotification(teamLeader.user_id, 'new-assignment', {
+          type: 'task',
+          title: 'Automated Team Assignment',
+          message: `New incident automatically assigned to your team: ${result.jobCard.Incident?.title || 'Unknown'}`,
+          related_type: 'incident',
+          related_id: req.params.incidentId
+        });
+      }
+
+      // Notify all team members (Worker: job updates)
+      teamMembers.forEach(member => {
+        if (member.User.role === 'worker') {
+          global.sendNotification(member.user_id, 'new-assignment', {
+            type: 'task',
+            title: 'New Automated Assignment',
+            message: `New incident assigned to your team: ${result.jobCard.Incident?.title || 'Unknown'}`,
+            related_type: 'incident',
+            related_id: req.params.incidentId
+          });
+        }
+      });
+
+      // Notify managers about the automated assignment (Manager: assignment updates)
+      global.sendRoleNotification('manager', 'assignment-update', {
+        type: 'info',
+        title: 'Automated Assignment Completed',
+        message: `Incident "${result.jobCard.Incident?.title || 'Unknown'}" automatically assigned to team ${result.selectedTeam.name}`,
+        related_type: 'incident',
+        related_id: req.params.incidentId
+      });
+
       res.json({
         success: true,
         message: result.message,
@@ -1026,6 +1110,37 @@ router.patch('/incidents/:incidentId/status',
         return res.status(500).json({
           success: false,
           error: updateResult.error
+        });
+      }
+
+      // Send notifications for status updates
+      if (updateResult.jobCard) {
+        // Notify team members about status change (Worker: job updates, Team Leader: team work updates)
+        const teamMembers = await TeamMember.findAll({
+          where: { team_id: updateResult.jobCard.team_id },
+          include: [User]
+        });
+
+        teamMembers.forEach(member => {
+          const notificationType = member.User.role === 'team_leader' ? 'warning' : 'info';
+          const title = member.User.role === 'team_leader' ? 'Team Status Update' : 'Job Status Update';
+
+          global.sendNotification(member.user_id, 'status-update', {
+            type: notificationType,
+            title: title,
+            message: `Incident "${updateResult.incident.title}" status changed to ${req.body.status}`,
+            related_type: 'incident',
+            related_id: updateResult.incident.id
+          });
+        });
+
+        // Notify managers about status changes (Manager: status updates from team leaders)
+        global.sendRoleNotification('manager', 'status-update', {
+          type: 'info',
+          title: 'Team Status Update',
+          message: `Incident "${updateResult.incident.title}" status updated to ${req.body.status}`,
+          related_type: 'incident',
+          related_id: updateResult.incident.id
         });
       }
 

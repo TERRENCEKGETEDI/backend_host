@@ -58,6 +58,26 @@ router.put('/progress/:progressId', async (req, res) => {
       reference_id: progress.id,
     });
 
+    // Send notification to the worker about progress update (Worker: job updates)
+    global.sendNotification(progress.worker_id, 'status-update', {
+      type: status === 'done' ? 'alert' : 'info',
+      title: 'Progress Update',
+      message: `Your progress on incident has been updated to ${status}`,
+      related_type: 'worker_progress',
+      related_id: progress.id
+    });
+
+    // If completed, notify managers (Manager: status updates from team leaders)
+    if (status === 'done') {
+      global.sendRoleNotification('manager', 'status-update', {
+        type: 'alert',
+        title: 'Task Completed',
+        message: `Worker progress completed for incident`,
+        related_type: 'worker_progress',
+        related_id: progress.id
+      });
+    }
+
     res.json({ message: 'Progress updated' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
-const { sequelize, User } = require('./models');
+const { sequelize, User, Notification, Message } = require('./models');
 
 const app = express();
 const server = http.createServer(app);
@@ -41,6 +41,11 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // =======================
+// Static Files
+// =======================
+app.use('/uploads', express.static('uploads'));
+
+// =======================
 // Database
 // =======================
 sequelize.authenticate()
@@ -58,6 +63,8 @@ app.use('/api/manager', require('./routes/manager'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/teamleader', require('./routes/teamleader'));
 app.use('/api/worker', require('./routes/worker'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/messages', require('./routes/messages'));
 
 // =======================
 // Socket.IO
@@ -102,8 +109,52 @@ io.on('connection', (socket) => {
 // =======================
 // Global Notifications
 // =======================
-global.sendNotification = (userId, event, data) => io.to(`user_${userId}`).emit(event, data);
-global.sendRoleNotification = (role, event, data) => io.to(`role_${role}`).emit(event, data);
+global.sendNotification = async (userId, event, data) => {
+  try {
+    // Save to database
+    if (data.title && data.message) {
+      await Notification.create({
+        user_id: userId,
+        role: data.role,
+        title: data.title,
+        message: data.message,
+        type: data.type || 'info',
+        related_type: data.related_type,
+        related_id: data.related_id
+      });
+    }
+
+    // Send via socket
+    io.to(`user_${userId}`).emit(event, data);
+  } catch (error) {
+    console.error('Error sending notification:', error);
+  }
+};
+
+global.sendRoleNotification = async (role, event, data) => {
+  try {
+    // For role notifications, we need to get all users with that role and save individual notifications
+    if (data.title && data.message) {
+      const users = await User.findAll({ where: { role: role } });
+      for (const user of users) {
+        await Notification.create({
+          user_id: user.id,
+          role: role,
+          title: data.title,
+          message: data.message,
+          type: data.type || 'info',
+          related_type: data.related_type,
+          related_id: data.related_id
+        });
+      }
+    }
+
+    // Send via socket to role room
+    io.to(`role_${role}`).emit(event, data);
+  } catch (error) {
+    console.error('Error sending role notification:', error);
+  }
+};
 
 // =======================
 // Test route

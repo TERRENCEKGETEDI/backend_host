@@ -26,6 +26,15 @@ router.post('/users', async (req, res) => {
       reference_id: user.id,
     });
 
+    // Send notification to all admins about new user creation (Admin: new user account created)
+    global.sendRoleNotification('admin', 'user-created', {
+      type: 'info',
+      title: 'New User Account Created',
+      message: `A new ${role} account has been created for ${user.name} (${user.email})`,
+      related_type: 'user',
+      related_id: user.id
+    });
+
     res.status(201).json({ message: 'User created', user });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -62,6 +71,24 @@ router.put('/users/:id/block', async (req, res) => {
       action: `${blocked ? 'Blocked' : 'Unblocked'} user ${user.name}`,
       table_name: 'users',
       reference_id: user.id,
+    });
+
+    // Send notification to the affected user (All users: general messages)
+    global.sendNotification(user.id, 'status-update', {
+      type: 'warning',
+      title: 'Account Status Change',
+      message: `Your account has been ${blocked ? 'blocked' : 'unblocked'} by an administrator`,
+      related_type: 'user',
+      related_id: user.id
+    });
+
+    // Send notification to all admins about the action (Admin: blocked accounts)
+    global.sendRoleNotification('admin', 'status-update', {
+      type: 'alert',
+      title: 'User Account Action',
+      message: `User ${user.name} has been ${blocked ? 'blocked' : 'unblocked'}`,
+      related_type: 'user',
+      related_id: user.id
     });
 
     res.json({ message: `User ${blocked ? 'blocked' : 'unblocked'} successfully` });
@@ -442,6 +469,23 @@ router.get('/reports/:type', async (req, res) => {
       res.status(400).json({ error: 'Invalid report type' });
     }
   } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get recent activity logs for admin notifications panel
+router.get('/recent-activities', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const activities = await ActivityLog.findAll({
+      include: [{ model: User, attributes: ['name', 'email', 'role'] }],
+      order: [['created_at', 'DESC']],
+      limit: limit
+    });
+
+    res.json(activities);
+  } catch (err) {
+    console.log('Error fetching recent activities:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

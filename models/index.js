@@ -6,6 +6,8 @@ const Incident = require('./Incident');
 const JobCard = require('./JobCard');
 const WorkerProgress = require('./WorkerProgress');
 const ActivityLog = require('./ActivityLog');
+const Notification = require('./Notification');
+const Message = require('./Message');
 
 // Associations
 User.hasMany(Team, { foreignKey: 'manager_id' });
@@ -38,6 +40,15 @@ WorkerProgress.belongsTo(User, { foreignKey: 'worker_id' });
 User.hasMany(ActivityLog, { foreignKey: 'user_id' });
 ActivityLog.belongsTo(User, { foreignKey: 'user_id' });
 
+User.hasMany(Notification, { foreignKey: 'user_id' });
+Notification.belongsTo(User, { foreignKey: 'user_id' });
+
+User.hasMany(Message, { foreignKey: 'sender_id', as: 'sentMessages' });
+Message.belongsTo(User, { foreignKey: 'sender_id', as: 'sender' });
+
+User.hasMany(Message, { foreignKey: 'receiver_id', as: 'receivedMessages' });
+Message.belongsTo(User, { foreignKey: 'receiver_id', as: 'receiver' });
+
 module.exports = {
   sequelize,
   User,
@@ -47,4 +58,6 @@ module.exports = {
   JobCard,
   WorkerProgress,
   ActivityLog,
+  Notification,
+  Message,
 };
