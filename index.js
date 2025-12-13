@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
-const { sequelize, User, Notification, Message } = require('./models');
+const { sequelize, User, Notification, Message, WhatsAppConversation } = require('./models');
 
 const app = express();
 const server = http.createServer(app);
@@ -65,6 +65,7 @@ app.use('/api/teamleader', require('./routes/teamleader'));
 app.use('/api/worker', require('./routes/worker'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/messages', require('./routes/messages'));
+app.use('/api/whatsapp', require('./routes/whatsapp'));
 
 // =======================
 // Socket.IO

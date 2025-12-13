@@ -8,6 +8,7 @@ const WorkerProgress = require('./WorkerProgress');
 const ActivityLog = require('./ActivityLog');
 const Notification = require('./Notification');
 const Message = require('./Message');
+const WhatsAppConversation = require('./WhatsAppConversation');
 
 // Associations
 User.hasMany(Team, { foreignKey: 'manager_id' });
@@ -60,4 +61,5 @@ module.exports = {
   ActivityLog,
   Notification,
   Message,
+  WhatsAppConversation,
 };

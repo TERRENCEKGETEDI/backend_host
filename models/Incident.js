@@ -40,7 +40,7 @@ const Incident = sequelize.define('Incident', {
     unique: true,
   },
   status: {
-    type: DataTypes.ENUM('Not Started', 'In Progress', 'Completed', 'Cancelled', 'verified'),
+    type: DataTypes.ENUM('Not Started', 'In Progress', 'Completed', 'Cancelled', 'verified', 'escalated'),
     defaultValue: 'Not Started',
   },
   assigned_team_id: {
