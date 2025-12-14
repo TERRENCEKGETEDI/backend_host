@@ -115,10 +115,163 @@ router.post('/jobs/:jobId/help', async (req, res) => {
   }
 });
 
-// Download reports - placeholder
+// Download reports
 router.get('/reports', async (req, res) => {
-  // TODO: generate CSV/Excel
-  res.json({ message: 'Reports endpoint' });
+  const { type, startDate, endDate } = req.query;
+
+  try {
+    // Find team managed by this team leader
+    const teamMember = await TeamMember.findOne({
+      where: { user_id: req.user.id },
+      include: [{ model: Team }]
+    });
+
+    if (!teamMember || !teamMember.Team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const teamId = teamMember.Team.id;
+    let data = [];
+    let filename = 'report.csv';
+    let headers = [];
+
+    // Build date filter
+    const dateFilter = {};
+    if (startDate && endDate) {
+      dateFilter.assigned_at = {
+        [Op.between]: [new Date(startDate), new Date(endDate)]
+      };
+    }
+
+    switch (type) {
+      case 'assignment_history':
+        const jobCards = await JobCard.findAll({
+          where: { team_id: teamId, ...dateFilter },
+          include: [Incident],
+          order: [['assigned_at', 'DESC']]
+        });
+
+        data = jobCards.map(job => ({
+          'Incident Title': job.Incident?.title || 'Unknown',
+          'Status': job.status,
+          'Assigned Date': job.assigned_at ? new Date(job.assigned_at).toISOString().split('T')[0] : '',
+          'Started Date': job.started_at ? new Date(job.started_at).toISOString().split('T')[0] : '',
+          'Completed Date': job.completed_at ? new Date(job.completed_at).toISOString().split('T')[0] : '',
+          'Response Time (hours)': job.completed_at && job.assigned_at
+            ? Math.round((new Date(job.completed_at) - new Date(job.assigned_at)) / (1000 * 60 * 60) * 100) / 100
+            : ''
+        }));
+
+        filename = 'assignment_history_report.csv';
+        headers = ['Incident Title', 'Status', 'Assigned Date', 'Started Date', 'Completed Date', 'Response Time (hours)'];
+        break;
+
+      case 'performance':
+        // Get performance metrics
+        const jobs = await JobCard.findAll({
+          where: { team_id: teamId, ...dateFilter },
+          include: [Incident]
+        });
+
+        const totalJobs = jobs.length;
+        const completedJobs = jobs.filter(j => j.status === 'completed').length;
+        const completionRate = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+
+        // Calculate average response time
+        let avgResponseTime = 0;
+        if (jobs.length > 0) {
+          const completedJobsWithTime = jobs.filter(j => j.completed_at && j.assigned_at);
+          if (completedJobsWithTime.length > 0) {
+            const totalTime = completedJobsWithTime.reduce((sum, job) =>
+              sum + (new Date(job.completed_at) - new Date(job.assigned_at)), 0);
+            avgResponseTime = totalTime / completedJobsWithTime.length / (1000 * 60 * 60); // hours
+          }
+        }
+
+        data = [{
+          'Period': `${startDate || 'All time'} to ${endDate || 'Present'}`,
+          'Total Assignments': totalJobs,
+          'Completed Assignments': completedJobs,
+          'Completion Rate (%)': completionRate,
+          'Average Response Time (hours)': Math.round(avgResponseTime * 100) / 100
+        }];
+
+        filename = 'performance_report.csv';
+        headers = ['Period', 'Total Assignments', 'Completed Assignments', 'Completion Rate (%)', 'Average Response Time (hours)'];
+        break;
+
+      case 'workload':
+        const workloadJobs = await JobCard.findAll({
+          where: { team_id: teamId },
+          include: [Incident]
+        });
+
+        const workloadStats = {
+          'Total Jobs': workloadJobs.length,
+          'Not Started': workloadJobs.filter(j => j.status === 'not_started').length,
+          'In Progress': workloadJobs.filter(j => j.status === 'in_progress').length,
+          'Completed': workloadJobs.filter(j => j.status === 'completed').length,
+          'Completion Rate (%)': workloadJobs.length > 0
+            ? Math.round((workloadJobs.filter(j => j.status === 'completed').length / workloadJobs.length) * 100)
+            : 0,
+          'Team Capacity': teamMember.Team.max_capacity,
+          'Current Load': workloadJobs.filter(j => j.status !== 'completed').length,
+          'Utilization Rate (%)': teamMember.Team.max_capacity > 0
+            ? Math.round((workloadJobs.filter(j => j.status !== 'completed').length / teamMember.Team.max_capacity) * 100)
+            : 0
+        };
+
+        data = [workloadStats];
+        filename = 'workload_report.csv';
+        headers = Object.keys(workloadStats);
+        break;
+
+      case 'team_activity':
+        const activities = await ActivityLog.findAll({
+          where: {
+            user_id: {
+              [Op.in]: (await TeamMember.findAll({
+                where: { team_id: teamId },
+                attributes: ['user_id']
+              })).map(tm => tm.user_id)
+            },
+            ...dateFilter
+          },
+          include: [User],
+          order: [['created_at', 'DESC']]
+        });
+
+        data = activities.map(activity => ({
+          'User': activity.User?.name || 'Unknown',
+          'Action': activity.action,
+          'Table': activity.table_name,
+          'Date': new Date(activity.created_at).toISOString().split('T')[0],
+          'Time': new Date(activity.created_at).toTimeString().split(' ')[0]
+        }));
+
+        filename = 'team_activity_report.csv';
+        headers = ['User', 'Action', 'Table', 'Date', 'Time'];
+        break;
+
+      default:
+        return res.status(400).json({ error: 'Invalid report type' });
+    }
+
+    // Generate CSV
+    const csvWriter = require('csv-writer').createObjectCsvStringifier({
+      header: headers.map(header => ({ id: header, title: header }))
+    });
+
+    const csv = csvWriter.getHeaderString() + csvWriter.stringifyRecords(data);
+
+    res.header('Content-Type', 'text/csv');
+    res.attachment(filename);
+    res.send(csv);
+
+  } catch (err) {
+    console.error('Error generating report:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Message manager and team members - placeholder

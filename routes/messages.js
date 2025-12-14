@@ -222,6 +222,33 @@ router.post('/', upload.single('attachment'), async (req, res) => {
   }
 });
 
+// Get unread message count
+router.get('/unread-count', async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // Count unread direct messages
+    const directUnreadCount = await Message.count({
+      where: {
+        receiver_id: userId,
+        is_read: false
+      }
+    });
+
+    // For broadcasts and channels, since they don't have per-user read status,
+    // we could count recent ones, but for simplicity, only count direct unread
+    // To include broadcasts, perhaps count all broadcasts to user's role that are recent,
+    // but since no read status, maybe don't include or assume all unread.
+
+    // For now, only direct unread messages
+    res.json({ count: directUnreadCount });
+  } catch (err) {
+    console.error('Error fetching unread count:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Mark message as read
 router.put('/:id/read', async (req, res) => {
   try {
