@@ -91,6 +91,51 @@ router.get('/incidents/status/:trackingId', async (req, res) => {
   }
 });
 
+// Escalate incident
+router.post('/escalate', async (req, res) => {
+  const { incidentNumber, description, fullName } = req.body;
+
+  // Validate required fields
+  if (!incidentNumber || !description || !fullName) {
+    return res.status(400).json({ error: 'Incident number, description, and full name are required' });
+  }
+
+  try {
+    // Find incident by tracking_id
+    const incident = await Incident.findOne({
+      where: { tracking_id: incidentNumber }
+    });
+
+    if (!incident) {
+      return res.status(400).json({ error: 'Invalid incident number.' });
+    }
+
+    // Update incident status to escalated
+    await incident.update({ status: 'escalated' });
+
+    // Log activity
+    await ActivityLog.create({
+      action: `Incident escalated: ${incident.title}`,
+      table_name: 'incidents',
+      reference_id: incident.id,
+    });
+
+    // Send notification to managers
+    global.sendRoleNotification('manager', 'incident-escalated', {
+      type: 'alert',
+      title: 'Incident Escalated',
+      message: `Incident ${incidentNumber} has been escalated by ${fullName}. Description: ${description}`,
+      related_type: 'incident',
+      related_id: incident.id
+    });
+
+    res.json({ message: 'Incident escalated. The manager has been notified.' });
+  } catch (err) {
+    console.error('Error escalating incident:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Public stats
 router.get('/stats', async (req, res) => {
   try {
