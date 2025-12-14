@@ -95,6 +95,10 @@ router.post('/webhook', validateTwilioRequest, async (req, res) => {
 
     // Route to appropriate handler based on state
     switch (conversation.state) {
+      case 'idle':
+        // Any message when idle starts a new conversation
+        await showMainMenu(conversation, phoneNumber);
+        break;
       case 'main_menu':
         await handleMainMenuChoice(conversation, message, phoneNumber);
         break;
@@ -140,7 +144,7 @@ router.post('/webhook', validateTwilioRequest, async (req, res) => {
 // Show main menu
 async function showMainMenu(conversation, phoneNumber) {
   await conversation.update({ state: 'main_menu', temp_data: {} });
-  const menu = `CHAT: Welcome to Sewage Management System
+  const menu = `Welcome to Sewage Management System
 Enter the number before the option you want, eg "1" to report
 1-Report incident
 2-Check Progress Status
