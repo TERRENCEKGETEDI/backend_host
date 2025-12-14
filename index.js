@@ -43,7 +43,10 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // =======================
 // Static Files
 // =======================
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', (req, res, next) => {
+  console.log(`DEBUG: Static file request: ${req.path}, full URL: ${req.originalUrl}`);
+  next();
+}, express.static('uploads'));
 
 // =======================
 // Database
