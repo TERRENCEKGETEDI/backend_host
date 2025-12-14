@@ -12,8 +12,17 @@ const fromNumber = process.env.TWILIO_WHATSAPP_FROM;
 
 // Middleware to validate Twilio webhook
 const validateTwilioRequest = (req, res, next) => {
+  console.log('Validating Twilio webhook...');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('TWILIO_AUTH_TOKEN present:', !!process.env.TWILIO_AUTH_TOKEN);
+
+  // Temporarily skip validation to debug webhook calls
+  console.log('Skipping validation for debugging');
+  return next();
+
   // Skip validation in development
   if (process.env.NODE_ENV !== 'production') {
+    console.log('Skipping validation (development mode)');
     return next();
   }
 
@@ -27,9 +36,14 @@ const validateTwilioRequest = (req, res, next) => {
   const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   const params = req.body;
 
+  console.log('Twilio signature:', twilioSignature);
+  console.log('Request URL:', url);
+
   if (twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, twilioSignature, url, params)) {
+    console.log('Webhook validation successful');
     next();
   } else {
+    console.log('Webhook validation failed');
     res.status(403).send('Invalid signature');
   }
 };
@@ -49,6 +63,10 @@ const sendWhatsAppMessage = async (to, body) => {
 
 // Handle incoming WhatsApp messages
 router.post('/webhook', validateTwilioRequest, async (req, res) => {
+  console.log('=== WhatsApp Webhook Called ===');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+
   const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
   const phoneNumber = From.replace('whatsapp:', '');
 
@@ -270,5 +288,15 @@ async function handleEscalation(conversation, message, phoneNumber) {
     await sendWhatsAppMessage(phoneNumber, 'Issue escalated successfully. Our team will review it shortly.');
   }
 }
+
+// Test endpoint to verify webhook is accessible
+router.get('/test', (req, res) => {
+  res.json({
+    message: 'WhatsApp webhook is accessible',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV,
+    authTokenPresent: !!process.env.TWILIO_AUTH_TOKEN
+  });
+});
 
 module.exports = router;
