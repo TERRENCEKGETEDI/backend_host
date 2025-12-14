@@ -67,7 +67,7 @@ router.post('/webhook', validateTwilioRequest, async (req, res) => {
   console.log('Headers:', JSON.stringify(req.headers, null, 2));
   console.log('Body:', JSON.stringify(req.body, null, 2));
 
-  const { From, Body, MediaUrl0, MediaContentType0 } = req.body;
+  const { From, Body, MediaUrl0, MediaContentType0, Latitude, Longitude } = req.body;
   const phoneNumber = From.replace('whatsapp:', '');
 
   try {
@@ -80,60 +80,54 @@ router.post('/webhook', validateTwilioRequest, async (req, res) => {
       console.log(`New WhatsApp conversation created for ${phoneNumber}`);
     }
 
-    const message = Body.trim().toLowerCase();
+    const message = Body ? Body.trim() : '';
+    const hasMedia = !!MediaUrl0;
+    const hasLocation = !!(Latitude && Longitude);
 
     // Handle "Hi" or reset
-    if (message === 'hi' || message === 'hello' || message === 'bye') {
-      if (message === 'bye') {
-        await conversation.update({ state: 'idle', temp_data: {} });
-        await sendWhatsAppMessage(phoneNumber, 'Conversation ended. Send "Hi" to start again.');
-        return res.status(200).send();
-      }
-
-      await conversation.update({ state: 'awaiting_menu_choice', temp_data: {} });
-      await sendWhatsAppMessage(phoneNumber, 'Welcome! Enter 1 to report an incident, 2 to check progress on a previous report, 3 to escalate an existing issue.');
+    if (message.toLowerCase() === 'hi' || message.toLowerCase() === 'hello') {
+      await showMainMenu(conversation, phoneNumber);
       return res.status(200).send();
-    }
-
-    // Handle menu choices
-    if (conversation.state === 'awaiting_menu_choice') {
-      if (message === '1') {
-        await conversation.update({ state: 'reporting_incident_title', temp_data: {} });
-        await sendWhatsAppMessage(phoneNumber, 'Please enter the incident title:');
-      } else if (message === '2') {
-        await conversation.update({ state: 'awaiting_report_id' });
-        await sendWhatsAppMessage(phoneNumber, 'Please enter your report ID:');
-      } else if (message === '3') {
-        await conversation.update({ state: 'awaiting_escalation_reason', temp_data: {} });
-        await sendWhatsAppMessage(phoneNumber, 'Please enter the report ID you want to escalate:');
-      } else {
-        await sendWhatsAppMessage(phoneNumber, 'Invalid choice. Please reply with 1, 2, or 3.');
-      }
-      return res.status(200).send();
-    }
-
-    // Handle media attachments
-    let mediaUrls = [];
-    if (MediaUrl0) {
-      mediaUrls.push(MediaUrl0);
-      // Handle multiple media if present
-      let i = 1;
-      while (req.body[`MediaUrl${i}`]) {
-        mediaUrls.push(req.body[`MediaUrl${i}`]);
-        i++;
-      }
     }
 
     // Update last activity
     await conversation.update({ last_activity: new Date() });
 
-    // Handle incident reporting flow
-    if (conversation.state.startsWith('reporting_incident_')) {
-      await handleIncidentReporting(conversation, message, phoneNumber, mediaUrls);
-    } else if (conversation.state === 'awaiting_report_id') {
-      await handleProgressCheck(conversation, message, phoneNumber);
-    } else if (conversation.state === 'awaiting_escalation_reason') {
-      await handleEscalation(conversation, message, phoneNumber);
+    // Route to appropriate handler based on state
+    switch (conversation.state) {
+      case 'main_menu':
+        await handleMainMenuChoice(conversation, message, phoneNumber);
+        break;
+      case 'selecting_incident_type':
+        await handleIncidentTypeSelection(conversation, message, phoneNumber);
+        break;
+      case 'awaiting_incident_photo':
+        await handleIncidentPhoto(conversation, message, phoneNumber, hasMedia ? MediaUrl0 : null);
+        break;
+      case 'awaiting_location':
+        await handleLocationInput(conversation, message, phoneNumber, hasLocation ? { lat: Latitude, lng: Longitude } : null);
+        break;
+      case 'awaiting_name':
+        await handleNameInput(conversation, message, phoneNumber);
+        break;
+      case 'confirming_incident':
+        await handleIncidentConfirmation(conversation, message, phoneNumber);
+        break;
+      case 'awaiting_progress_id':
+        await handleProgressCheck(conversation, message, phoneNumber);
+        break;
+      case 'awaiting_escalation_id':
+        await handleEscalationId(conversation, message, phoneNumber);
+        break;
+      case 'awaiting_escalation_reason':
+        await handleEscalationReason(conversation, message, phoneNumber);
+        break;
+      case 'confirming_escalation':
+        await handleEscalationConfirmation(conversation, message, phoneNumber);
+        break;
+      default:
+        // Unknown state, show main menu
+        await showMainMenu(conversation, phoneNumber);
     }
 
     res.status(200).send();
@@ -143,134 +137,275 @@ router.post('/webhook', validateTwilioRequest, async (req, res) => {
   }
 });
 
-// Handle incident reporting steps
-async function handleIncidentReporting(conversation, message, phoneNumber, mediaUrls = []) {
-  const tempData = { ...conversation.temp_data };
+// Show main menu
+async function showMainMenu(conversation, phoneNumber) {
+  await conversation.update({ state: 'main_menu', temp_data: {} });
+  const menu = `CHAT: Welcome to Sewage Management System
+Enter the number before the option you want, eg "1" to report
+1-Report incident
+2-Check Progress Status
+3-Escalate an Incident
+4-Cancel/Exit`;
+  await sendWhatsAppMessage(phoneNumber, menu);
+}
 
-  switch (conversation.state) {
-    case 'reporting_incident_title':
-      tempData.title = message;
-      await conversation.update({ state: 'reporting_incident_description', temp_data: tempData });
-      await sendWhatsAppMessage(phoneNumber, 'Please enter the incident description:');
+// Handle main menu choice
+async function handleMainMenuChoice(conversation, message, phoneNumber) {
+  const choice = message.trim();
+
+  switch (choice) {
+    case '1':
+      await showIncidentTypes(conversation, phoneNumber);
       break;
-
-    case 'reporting_incident_description':
-      tempData.description = message;
-      if (mediaUrls.length > 0) {
-        tempData.images = tempData.images || [];
-        tempData.images.push(...mediaUrls);
-      }
-      await conversation.update({ state: 'reporting_incident_location', temp_data: tempData });
-      await sendWhatsAppMessage(phoneNumber, 'Please enter the location:');
+    case '2':
+      await conversation.update({ state: 'awaiting_progress_id' });
+      await sendWhatsAppMessage(phoneNumber, 'Enter the incident ID or reference number to check status');
       break;
-
-    case 'reporting_incident_location':
-      tempData.location = message;
-      await conversation.update({ state: 'reporting_incident_contact_name', temp_data: tempData });
-      await sendWhatsAppMessage(phoneNumber, 'Please enter your contact name:');
+    case '3':
+      await conversation.update({ state: 'awaiting_escalation_id' });
+      await sendWhatsAppMessage(phoneNumber, 'Enter the incident ID to escalate');
       break;
-
-    case 'reporting_incident_contact_name':
-      tempData.contact_name = message;
-      await conversation.update({ state: 'reporting_incident_contact_phone', temp_data: tempData });
-      await sendWhatsAppMessage(phoneNumber, 'Please enter your contact phone number:');
+    case '4':
+      await conversation.update({ state: 'idle', temp_data: {} });
+      await sendWhatsAppMessage(phoneNumber, 'Session ended. Thank you for using Sewage Management System.');
       break;
+    default:
+      await sendWhatsAppMessage(phoneNumber, 'Invalid input, please try again. Enter 1, 2, 3, or 4.');
+  }
+}
 
-    case 'reporting_incident_contact_phone':
-      tempData.contact_phone = message;
-      await conversation.update({ state: 'reporting_incident_contact_email', temp_data: tempData });
-      await sendWhatsAppMessage(phoneNumber, 'Please enter your contact email (optional, press enter to skip):');
-      break;
+// Show incident type selection
+async function showIncidentTypes(conversation, phoneNumber) {
+  await conversation.update({ state: 'selecting_incident_type' });
+  const types = `Select the Incident below:
+1-Sewage Leak
+2-Road Damage
+3-Water Main Break
+4-Storm Drain Issue
+5-Manhole Problem
+6-Other`;
+  await sendWhatsAppMessage(phoneNumber, types);
+}
 
-    case 'reporting_incident_contact_email':
-      tempData.contact_email = message || null;
-      await conversation.update({ state: 'confirming_incident', temp_data: tempData });
-      const summary = `Title: ${tempData.title}\nDescription: ${tempData.description}\nLocation: ${tempData.location}\nContact: ${tempData.contact_name}, ${tempData.contact_phone}${tempData.contact_email ? ', ' + tempData.contact_email : ''}\n\nReply "yes" to confirm or "no" to start over.`;
-      await sendWhatsAppMessage(phoneNumber, summary);
-      break;
+// Handle incident type selection
+async function handleIncidentTypeSelection(conversation, message, phoneNumber) {
+  const incidentTypes = {
+    '1': 'Sewage Leak',
+    '2': 'Road Damage',
+    '3': 'Water Main Break',
+    '4': 'Storm Drain Issue',
+    '5': 'Manhole Problem',
+    '6': 'Other'
+  };
 
-    case 'confirming_incident':
-      if (message === 'yes') {
-        // Create incident
-        const trackingId = 'INC' + Date.now() + Math.random().toString(36).substr(2, 5).toUpperCase();
-        const images = tempData.images ? tempData.images.join(',') : null;
-        const incident = await Incident.create({
-          title: tempData.title,
-          description: tempData.description,
-          location: tempData.location,
-          contact_name: tempData.contact_name,
-          contact_phone: tempData.contact_phone,
-          contact_email: tempData.contact_email,
-          images,
-          tracking_id: trackingId,
-          status: 'verified'
-        });
+  const type = incidentTypes[message.trim()];
+  if (!type) {
+    await sendWhatsAppMessage(phoneNumber, 'Invalid input, please try again. Enter 1-6.');
+    return;
+  }
 
-        // Log activity
-        await ActivityLog.create({
-          action: `Incident reported via WhatsApp: ${tempData.title}`,
-          table_name: 'incidents',
-          reference_id: incident.id,
-        });
+  const tempData = { ...conversation.temp_data, incident_type: type };
+  await conversation.update({ state: 'awaiting_incident_photo', temp_data: tempData });
+  await sendWhatsAppMessage(phoneNumber, 'Please send a photo of the area and add a description/caption (not a must) along with the picture');
+}
 
-        // Send notification to managers
-        global.sendRoleNotification('manager', 'new-incident', {
-          type: 'alert',
-          title: 'New Incident Reported via WhatsApp',
-          message: `New incident reported: ${tempData.title}`,
-          related_type: 'incident',
-          related_id: incident.id
-        });
+// Handle incident photo and description
+async function handleIncidentPhoto(conversation, message, phoneNumber, mediaUrl) {
+  if (!mediaUrl) {
+    await sendWhatsAppMessage(phoneNumber, 'Please send a photo of the incident area.');
+    return;
+  }
 
-        await conversation.update({ state: 'idle', temp_data: {} });
-        await sendWhatsAppMessage(phoneNumber, `Incident reported successfully! Your report ID is: ${trackingId}`);
-      } else if (message === 'no') {
-        await conversation.update({ state: 'reporting_incident_title', temp_data: {} });
-        await sendWhatsAppMessage(phoneNumber, 'Let\'s start over. Please enter the incident title:');
-      } else {
-        await sendWhatsAppMessage(phoneNumber, 'Please reply "yes" to confirm or "no" to start over.');
-      }
-      break;
+  const tempData = {
+    ...conversation.temp_data,
+    image: mediaUrl,
+    description: message || 'No description provided'
+  };
+
+  await conversation.update({ state: 'awaiting_location', temp_data: tempData });
+  await sendWhatsAppMessage(phoneNumber, 'Please send the location of the incident (share location or describe it)');
+}
+
+// Handle location input
+async function handleLocationInput(conversation, message, phoneNumber, locationData) {
+  let location = '';
+
+  if (locationData) {
+    // WhatsApp location shared
+    location = `${locationData.lat},${locationData.lng}`;
+  } else if (message && message.toLowerCase() !== 'skip') {
+    // Text description
+    location = message;
+  } else {
+    await sendWhatsAppMessage(phoneNumber, 'Location is required. Please share your location or describe it.');
+    return;
+  }
+
+  const tempData = { ...conversation.temp_data, location };
+  await conversation.update({ state: 'awaiting_name', temp_data: tempData });
+  await sendWhatsAppMessage(phoneNumber, 'Enter your name (not a must, enter "skip" to skip)');
+}
+
+// Handle name input
+async function handleNameInput(conversation, message, phoneNumber) {
+  const name = message.toLowerCase() === 'skip' ? null : message || null;
+  const tempData = { ...conversation.temp_data, name };
+
+  await conversation.update({ state: 'confirming_incident', temp_data: tempData });
+  await showIncidentSummary(conversation, phoneNumber);
+}
+
+// Show incident summary for confirmation
+async function showIncidentSummary(conversation, phoneNumber) {
+  const data = conversation.temp_data;
+  const summary = `Incident Summary:
+Type: ${data.incident_type}
+Description: ${data.description}
+Location: ${data.location}
+Name: ${data.name || 'Not provided'}
+
+Enter "Y" to confirm or "N" to cancel`;
+  await sendWhatsAppMessage(phoneNumber, summary);
+}
+
+// Handle incident confirmation
+async function handleIncidentConfirmation(conversation, message, phoneNumber) {
+  const choice = message.toLowerCase().trim();
+
+  if (choice === 'y' || choice === 'yes') {
+    await createIncident(conversation, phoneNumber);
+  } else if (choice === 'n' || choice === 'no') {
+    await conversation.update({ state: 'idle', temp_data: {} });
+    await sendWhatsAppMessage(phoneNumber, 'Incident report cancelled.');
+    await showMainMenu(conversation, phoneNumber);
+  } else {
+    await sendWhatsAppMessage(phoneNumber, 'Invalid input. Enter "Y" to confirm or "N" to cancel.');
+  }
+}
+
+// Create incident in database
+async function createIncident(conversation, phoneNumber) {
+  const data = conversation.temp_data;
+
+  try {
+    // Create incident
+    const trackingId = 'INC' + Date.now() + Math.random().toString(36).substr(2, 5).toUpperCase();
+    const incident = await Incident.create({
+      title: data.incident_type,
+      description: data.description,
+      location: data.location,
+      contact_name: data.name,
+      images: data.image,
+      tracking_id: trackingId,
+      status: 'verified'
+    });
+
+    // Log activity
+    await ActivityLog.create({
+      action: `Incident reported via WhatsApp: ${data.incident_type}`,
+      table_name: 'incidents',
+      reference_id: incident.id,
+    });
+
+    // Send notification to managers
+    global.sendRoleNotification('manager', 'new-incident', {
+      type: 'alert',
+      title: 'New Incident Reported via WhatsApp',
+      message: `New incident reported: ${data.incident_type}`,
+      related_type: 'incident',
+      related_id: incident.id
+    });
+
+    await conversation.update({ state: 'idle', temp_data: {} });
+    await sendWhatsAppMessage(phoneNumber, `✅ Incident reported successfully! Your reference number is: ${trackingId}`);
+    await showMainMenu(conversation, phoneNumber);
+  } catch (error) {
+    console.error('Error creating incident:', error);
+    await sendWhatsAppMessage(phoneNumber, 'Sorry, there was an error processing your report. Please try again.');
+    await showMainMenu(conversation, phoneNumber);
   }
 }
 
 // Handle progress check
 async function handleProgressCheck(conversation, message, phoneNumber) {
-  const incident = await Incident.findOne({ where: { tracking_id: message.toUpperCase() } });
+  const incidentId = message.trim().toUpperCase();
+  const incident = await Incident.findOne({ where: { tracking_id: incidentId } });
+
   if (!incident) {
-    await sendWhatsAppMessage(phoneNumber, 'Report ID not found. Please check and try again.');
-  } else {
-    const status = `Status: ${incident.status}\nTitle: ${incident.title}\nDescription: ${incident.description}\nLocation: ${incident.location}\nReported: ${incident.created_at.toDateString()}`;
-    await sendWhatsAppMessage(phoneNumber, status);
+    await sendWhatsAppMessage(phoneNumber, 'Invalid ID, please enter a valid incident ID');
+    return;
   }
-  await conversation.update({ state: 'idle' });
+
+  const status = `Incident ID ${incidentId}: Reported on ${incident.created_at.toDateString()}, Status: ${incident.status}, Last Update: ${incident.updated_at.toDateString()}`;
+  await sendWhatsAppMessage(phoneNumber, status);
+  await showMainMenu(conversation, phoneNumber);
 }
 
-// Handle escalation
-async function handleEscalation(conversation, message, phoneNumber) {
-  const tempData = { ...conversation.temp_data };
+// Handle escalation ID input
+async function handleEscalationId(conversation, message, phoneNumber) {
+  const incidentId = message.trim().toUpperCase();
+  const incident = await Incident.findOne({ where: { tracking_id: incidentId } });
 
-  if (!tempData.report_id) {
-    const incident = await Incident.findOne({ where: { tracking_id: message.toUpperCase() } });
-    if (!incident) {
-      await sendWhatsAppMessage(phoneNumber, 'Report ID not found. Please check and try again.');
-      await conversation.update({ state: 'idle' });
-      return;
-    }
-    tempData.report_id = message.toUpperCase();
-    await conversation.update({ temp_data: tempData });
-    await sendWhatsAppMessage(phoneNumber, 'Please enter the reason for escalation:');
+  if (!incident) {
+    await sendWhatsAppMessage(phoneNumber, 'Invalid ID, please enter a valid incident ID');
+    return;
+  }
+
+  const tempData = { ...conversation.temp_data, escalation_id: incidentId };
+  await conversation.update({ state: 'awaiting_escalation_reason', temp_data: tempData });
+  await sendWhatsAppMessage(phoneNumber, 'Provide reason for escalation (optional description, enter "skip" to skip)');
+}
+
+// Handle escalation reason
+async function handleEscalationReason(conversation, message, phoneNumber) {
+  const reason = message.toLowerCase() === 'skip' ? 'No reason provided' : message;
+  const tempData = { ...conversation.temp_data, escalation_reason: reason };
+
+  await conversation.update({ state: 'confirming_escalation', temp_data: tempData });
+  await showEscalationSummary(conversation, phoneNumber);
+}
+
+// Show escalation summary
+async function showEscalationSummary(conversation, phoneNumber) {
+  const data = conversation.temp_data;
+  const summary = `Escalation Summary:
+Incident ID: ${data.escalation_id}
+Reason: ${data.escalation_reason}
+
+Enter "Y" to confirm or "N" to cancel`;
+  await sendWhatsAppMessage(phoneNumber, summary);
+}
+
+// Handle escalation confirmation
+async function handleEscalationConfirmation(conversation, message, phoneNumber) {
+  const choice = message.toLowerCase().trim();
+
+  if (choice === 'y' || choice === 'yes') {
+    await escalateIncident(conversation, phoneNumber);
+  } else if (choice === 'n' || choice === 'no') {
+    await conversation.update({ state: 'idle', temp_data: {} });
+    await sendWhatsAppMessage(phoneNumber, 'Escalation cancelled.');
+    await showMainMenu(conversation, phoneNumber);
   } else {
-    // Update incident status to escalated
+    await sendWhatsAppMessage(phoneNumber, 'Invalid input. Enter "Y" to confirm or "N" to cancel.');
+  }
+}
+
+// Escalate incident
+async function escalateIncident(conversation, phoneNumber) {
+  const data = conversation.temp_data;
+
+  try {
+    // Update incident status
     await Incident.update(
       { status: 'escalated' },
-      { where: { tracking_id: tempData.report_id } }
+      { where: { tracking_id: data.escalation_id } }
     );
 
     // Log escalation
-    const incident = await Incident.findOne({ where: { tracking_id: tempData.report_id } });
+    const incident = await Incident.findOne({ where: { tracking_id: data.escalation_id } });
     await ActivityLog.create({
-      action: `Incident escalated via WhatsApp: ${message}`,
+      action: `Incident escalated via WhatsApp: ${data.escalation_reason}`,
       table_name: 'incidents',
       reference_id: incident.id,
     });
@@ -279,13 +414,18 @@ async function handleEscalation(conversation, message, phoneNumber) {
     global.sendRoleNotification('manager', 'incident-escalated', {
       type: 'alert',
       title: 'Incident Escalated via WhatsApp',
-      message: `Incident ${tempData.report_id} escalated: ${message}`,
+      message: `Incident ${data.escalation_id} escalated: ${data.escalation_reason}`,
       related_type: 'incident',
       related_id: incident.id
     });
 
     await conversation.update({ state: 'idle', temp_data: {} });
-    await sendWhatsAppMessage(phoneNumber, 'Issue escalated successfully. Our team will review it shortly.');
+    await sendWhatsAppMessage(phoneNumber, '✅ Escalation confirmed. Our team will review it shortly.');
+    await showMainMenu(conversation, phoneNumber);
+  } catch (error) {
+    console.error('Error escalating incident:', error);
+    await sendWhatsAppMessage(phoneNumber, 'Sorry, there was an error processing your escalation. Please try again.');
+    await showMainMenu(conversation, phoneNumber);
   }
 }
 

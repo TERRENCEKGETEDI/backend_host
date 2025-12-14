@@ -15,16 +15,16 @@ const WhatsAppConversation = sequelize.define('WhatsAppConversation', {
   state: {
     type: DataTypes.ENUM(
       'idle',
-      'awaiting_menu_choice',
-      'reporting_incident_title',
-      'reporting_incident_description',
-      'reporting_incident_location',
-      'reporting_incident_contact_name',
-      'reporting_incident_contact_phone',
-      'reporting_incident_contact_email',
+      'main_menu',
+      'selecting_incident_type',
+      'awaiting_incident_photo',
+      'awaiting_location',
+      'awaiting_name',
       'confirming_incident',
-      'awaiting_report_id',
-      'awaiting_escalation_reason'
+      'awaiting_progress_id',
+      'awaiting_escalation_id',
+      'awaiting_escalation_reason',
+      'confirming_escalation'
     ),
     defaultValue: 'idle',
   },
