@@ -17,11 +17,17 @@ const validateTwilioRequest = (req, res, next) => {
     return next();
   }
 
+  // In production, require auth token
+  if (!process.env.TWILIO_AUTH_TOKEN) {
+    console.error('TWILIO_AUTH_TOKEN not set in production environment');
+    return res.status(500).send('Server configuration error');
+  }
+
   const twilioSignature = req.get('X-Twilio-Signature');
   const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   const params = req.body;
 
-  if (twilio.validateRequest(authToken, twilioSignature, url, params)) {
+  if (twilio.validateRequest(process.env.TWILIO_AUTH_TOKEN, twilioSignature, url, params)) {
     next();
   } else {
     res.status(403).send('Invalid signature');
